@@ -30,26 +30,20 @@ type JobDetails interface {
 type NoJobForYou struct {
 }
 
-type MapJob struct {
-	Filename string
-}
-
-type ReduceJob struct {
-	Filename string
-}
-
 type AskForTaskRequest struct {
 }
 
 type AskForTaskResponse struct {
-	NoJob           bool
-	JobId           string
+	MapTask         bool
+	MapTaskId       string
 	MapTaskFilename string
 	MapTaskNReduce  int
+
+	ReduceTask        bool
+	ReduceTaskNReduce int
 }
 
 type MapTaskResultsRequest struct {
-	Filename string
 }
 
 type MapTaskResultsResponse struct {

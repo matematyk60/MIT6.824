@@ -1,24 +1,33 @@
 package mr
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
-	"path/filepath"
-	"sort"
 )
 
 type Coordinator struct {
 	// Your definitions here.
 
-	files     []string
-	filesLeft []string
-	nReduce   int
-	finished  bool
+	files   []string
+	nReduce int
+
+	mapJobs    []MapJob
+	reduceJobs []ReduceJob
+
+	finished bool
+}
+
+type MapJob struct {
+	File  string
+	JobId int
+}
+
+type ReduceJob struct {
+	NReduce int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -32,77 +41,26 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 func (c *Coordinator) AskForTask(args *AskForTaskRequest, reply *AskForTaskResponse) error {
-	if len(c.filesLeft) == 0 {
-		reply.NoJob = true
-	} else {
-		reply.JobId = fmt.Sprintf("%d", len(c.filesLeft))
-		reply.MapTaskFilename = c.filesLeft[0]
+	if len(c.mapJobs) > 0 {
+		mapJob := c.mapJobs[0]
+		c.mapJobs = c.mapJobs[1:]
+
+		reply.MapTask = true
+		reply.MapTaskId = fmt.Sprintf("%d", mapJob.JobId)
+		reply.MapTaskFilename = mapJob.File
 		reply.MapTaskNReduce = c.nReduce
+	} else if len(c.reduceJobs) > 0 {
+		reduceJob := c.reduceJobs[0]
+		c.reduceJobs = c.reduceJobs[1:]
+
+		reply.ReduceTask = true
+		reply.ReduceTaskNReduce = reduceJob.NReduce
 	}
 	return nil
 }
 
 func (c *Coordinator) MapTaskResults(args *MapTaskResultsRequest, reply *MapTaskResultsResponse) error {
-	fmt.Println(fmt.Sprintf("Got the results in file %v", args))
-	c.filesLeft = c.filesLeft[1:]
-	if len(c.filesLeft) == 0 {
-		// c.finished = true
-		c.runReduceJobs()
-	}
 	return nil
-}
-
-func (c *Coordinator) runReduceJobs() {
-
-	// fmt.Println("HELLO")
-	// fmt.Println(intermediateFiles)
-	for r := 0; r < c.nReduce; r++ {
-		kvs := collectEntriesForNReduce(r)
-		sort.Sort(ByKey(kvs))
-		runReduceOnValues(kvs)
-		fmt.Printf("Reduce n of %d successfully completed", r)
-	}
-
-	c.finished = true
-}
-
-func collectEntriesForNReduce(n int) []KeyValue {
-	var kvs []KeyValue
-	intermediateFiles, _ := filepath.Glob(fmt.Sprintf("intermediate-%d-*.txt", n))
-	for _, fileName := range intermediateFiles {
-		file, _ := os.Open(fileName)
-		dec := json.NewDecoder(file)
-		for {
-			var kv KeyValue
-			if err := dec.Decode(&kv); err != nil {
-				break
-			}
-			kvs = append(kvs, kv)
-		}
-		file.Close()
-	}
-	return kvs
-}
-
-func runReduceOnValues(kvs []KeyValue) {
-	i := 0
-	for i < len(kvs) {
-		j := i + 1
-		for j < len(kvs) && kvs[j].Key == kvs[i].Key {
-			j++
-		}
-		values := []string{}
-		for k := i; k < j; k++ {
-			values = append(values, kvs[k].Value)
-		}
-		// output := reducef(kvs[i].Key, values)
-		fmt.Printf("WOULD reduce %d values for key %s\n", len(values), kvs[i].Key)
-
-		// this is the correct format for each line of Reduce output.
-		// fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
-
-		i = j
-	}
 }
 
 // start a thread that listens for RPCs from worker.go
@@ -131,14 +89,16 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
+	c := Coordinator{files: files, nReduce: nReduce}
 
 	// Your code here.
 
 	c.server()
-	c.files = files
-	c.filesLeft = files
-	c.nReduce = nReduce
-	c.finished = false
+	for idx, file := range files {
+		c.mapJobs = append(c.mapJobs, MapJob{File: file, JobId: idx})
+	}
+	for i := 0; i < nReduce; i++ {
+		c.reduceJobs = append(c.reduceJobs, ReduceJob{NReduce: i})
+	}
 	return &c
 }

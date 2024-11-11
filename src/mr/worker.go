@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -30,6 +32,10 @@ type MapTask struct {
 	nReduce  int
 }
 
+type ReduceTask struct {
+	nReduce int
+}
+
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
 func ihash(key string) int {
@@ -46,17 +52,31 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the coordinator.
 	for {
-		mapTask := GetFileForWork()
-		file, err := os.Open(mapTask.fileName)
-		if err != nil {
-			log.Fatalf("cannot open %v", mapTask)
+		mapTask, reduceTask := GetTaskForWork()
+		if mapTask != nil {
+			fmt.Printf("Accepted map task %v\n", mapTask)
+			executeMapTask(mapTask, mapf)
+			fmt.Printf("Successfully executed map task %v\n", mapTask)
 		}
-		content, err := io.ReadAll(file)
-		file.Close()
-		results := mapf(mapTask.fileName, string(content))
-		SaveIntermediateFiles(mapTask.jobId, mapTask.nReduce, results)
-		SendBackMapResults(fmt.Sprintf("testfilename%v", len(results)))
+		if reduceTask != nil {
+			fmt.Printf("Accepted reduce task %v\n", reduceTask)
+			executeReduceTask(reduceTask, reducef)
+			fmt.Printf("Successfully executed reduce task %v\n", reduceTask)
+		}
+
 	}
+}
+
+func executeMapTask(mapTask *MapTask, mapf func(string, string) []KeyValue) {
+	file, err := os.Open(mapTask.fileName)
+	if err != nil {
+		log.Fatalf("cannot open %v", mapTask)
+	}
+	content, err := io.ReadAll(file)
+	file.Close()
+	results := mapf(mapTask.fileName, string(content))
+	SaveIntermediateFiles(mapTask.jobId, mapTask.nReduce, results)
+	SendBackMapResults()
 }
 
 func SaveIntermediateFiles(jobId string, nReduce int, kvs []KeyValue) string {
@@ -80,45 +100,79 @@ func SaveIntermediateFiles(jobId string, nReduce int, kvs []KeyValue) string {
 	return ""
 }
 
-// example function to show how to make an RPC call to the coordinator.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func GetFileForWork() MapTask {
+func executeReduceTask(reduceTask *ReduceTask, reducef func(string, []string) string) {
+	kvs := collectEntriesForNReduce(reduceTask.nReduce)
+	sort.Sort(ByKey(kvs))
+	runReduceOnValues(reduceTask.nReduce, kvs, reducef)
+}
 
-	// declare an argument structure.
+func collectEntriesForNReduce(n int) []KeyValue {
+	var kvs []KeyValue
+	intermediateFiles, _ := filepath.Glob(fmt.Sprintf("intermediate-%d-*.txt", n))
+	for _, fileName := range intermediateFiles {
+		file, _ := os.Open(fileName)
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			kvs = append(kvs, kv)
+		}
+		file.Close()
+	}
+	return kvs
+}
+
+func runReduceOnValues(n int, kvs []KeyValue, reducef func(string, []string) string) {
+	oname := fmt.Sprintf("mr-out-%d", n)
+	i := 0
+	ofile, _ := os.Create(oname)
+
+	for i < len(kvs) {
+		j := i + 1
+		for j < len(kvs) && kvs[j].Key == kvs[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, kvs[k].Value)
+		}
+		output := reducef(kvs[i].Key, values)
+
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(ofile, "%v %v\n", kvs[i].Key, output)
+
+		i = j
+	}
+	ofile.Close()
+}
+
+func GetTaskForWork() (*MapTask, *ReduceTask) {
 	args := AskForTaskRequest{}
 
-	// fill in the argument(s).
-
-	// declare a reply structure.
-
-	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
-	// ok := call("Coordinator.AskForTask", &args, &reply)
-	var task MapTask
+	var mapTask *MapTask
+	var reduceTask *ReduceTask
 	for {
 		reply := AskForTaskResponse{}
 		call("Coordinator.AskForTask", &args, &reply)
-		if reply.NoJob {
+		if reply.MapTask {
+			mapTask = &MapTask{jobId: reply.MapTaskId, fileName: reply.MapTaskFilename, nReduce: reply.MapTaskNReduce}
+			break
+		} else if reply.ReduceTask {
+			reduceTask = &ReduceTask{nReduce: reply.ReduceTaskNReduce}
+			break
+		} else {
 			fmt.Println("No task todo. Sleeping")
 			time.Sleep(5 * time.Second)
-		} else {
-			fmt.Println(reply.JobId)
-			task = MapTask{reply.JobId, reply.MapTaskFilename, reply.MapTaskNReduce}
-			break
 		}
 	}
-	return task
+	return mapTask, reduceTask
 }
 
-func SendBackMapResults(filename string) {
-	results := MapTaskResultsRequest{Filename: filename}
-	ok := call("Coordinator.MapTaskResults", results, &MapTaskResultsResponse{})
-	if ok {
-		fmt.Println("Successfully uploaded map results to the coordinator")
-	}
+func SendBackMapResults() {
+	results := MapTaskResultsRequest{}
+	call("Coordinator.MapTaskResults", results, &MapTaskResultsResponse{})
 }
 
 // send an RPC request to the coordinator, wait for the response.
