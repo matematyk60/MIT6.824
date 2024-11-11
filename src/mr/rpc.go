@@ -6,8 +6,10 @@ package mr
 // remember to capitalize all names.
 //
 
-import "os"
-import "strconv"
+import (
+	"os"
+	"strconv"
+)
 
 //
 // example to show how to declare the arguments
@@ -21,9 +23,47 @@ type ExampleArgs struct {
 type ExampleReply struct {
 	Y int
 }
+type JobDetails interface {
+	MapJob | ReduceJob | NoJobForYou
+}
+
+type NoJobForYou struct {
+}
+
+type MapJob struct {
+	Filename string
+}
+
+type ReduceJob struct {
+	Filename string
+}
+
+type AskForTaskRequest struct {
+}
+
+type AskForTaskResponse struct {
+	NoJob           bool
+	JobId           string
+	MapTaskFilename string
+	MapTaskNReduce  int
+}
+
+type MapTaskResultsRequest struct {
+	Filename string
+}
+
+type MapTaskResultsResponse struct {
+	/*
+		Tasks are expected to be written in files:
+
+		intermediate-<n>-<j>.txt
+
+		here n is the number of reduce bucket
+		and j is the id of the job.
+	*/
+}
 
 // Add your RPC definitions here.
-
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
