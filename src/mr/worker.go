@@ -27,12 +27,13 @@ func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 type MapTask struct {
-	jobId    string
+	taskId   int
 	fileName string
 	nReduce  int
 }
 
 type ReduceTask struct {
+	taskId  int
 	nReduce int
 }
 
@@ -63,7 +64,8 @@ func Worker(mapf func(string, string) []KeyValue,
 			executeReduceTask(reduceTask, reducef)
 			fmt.Printf("Successfully executed reduce task %v\n", reduceTask)
 		}
-
+		//no task returned, completing
+		fmt.Println("No task to execute. Finishing")
 	}
 }
 
@@ -75,14 +77,14 @@ func executeMapTask(mapTask *MapTask, mapf func(string, string) []KeyValue) {
 	content, err := io.ReadAll(file)
 	file.Close()
 	results := mapf(mapTask.fileName, string(content))
-	SaveIntermediateFiles(mapTask.jobId, mapTask.nReduce, results)
-	SendBackMapResults()
+	SaveIntermediateFiles(mapTask.taskId, mapTask.nReduce, results)
+	SendBackMapResults(mapTask.taskId)
 }
 
-func SaveIntermediateFiles(jobId string, nReduce int, kvs []KeyValue) string {
+func SaveIntermediateFiles(taskId int, nReduce int, kvs []KeyValue) string {
 	var intermediateFiles []*os.File
 	for i := 0; i < nReduce; i++ {
-		file, _ := os.Create(fmt.Sprintf("intermediate-%d-%s.txt", i, jobId))
+		file, _ := os.Create(fmt.Sprintf("intermediate-%d-%d.txt", i, taskId))
 		intermediateFiles = append(intermediateFiles, file)
 	}
 	var encoders []*json.Encoder
@@ -104,6 +106,7 @@ func executeReduceTask(reduceTask *ReduceTask, reducef func(string, []string) st
 	kvs := collectEntriesForNReduce(reduceTask.nReduce)
 	sort.Sort(ByKey(kvs))
 	runReduceOnValues(reduceTask.nReduce, kvs, reducef)
+	SendBackReduceResults(reduceTask.taskId)
 }
 
 func collectEntriesForNReduce(n int) []KeyValue {
@@ -157,10 +160,12 @@ func GetTaskForWork() (*MapTask, *ReduceTask) {
 		reply := AskForTaskResponse{}
 		call("Coordinator.AskForTask", &args, &reply)
 		if reply.MapTask {
-			mapTask = &MapTask{jobId: reply.MapTaskId, fileName: reply.MapTaskFilename, nReduce: reply.MapTaskNReduce}
+			mapTask = &MapTask{taskId: reply.MapTaskId, fileName: reply.MapTaskFilename, nReduce: reply.MapTaskNReduce}
 			break
 		} else if reply.ReduceTask {
-			reduceTask = &ReduceTask{nReduce: reply.ReduceTaskNReduce}
+			reduceTask = &ReduceTask{taskId: reply.ReduceTaskId, nReduce: reply.ReduceTaskNReduce}
+			break
+		} else if reply.Done {
 			break
 		} else {
 			fmt.Println("No task todo. Sleeping")
@@ -170,9 +175,14 @@ func GetTaskForWork() (*MapTask, *ReduceTask) {
 	return mapTask, reduceTask
 }
 
-func SendBackMapResults() {
-	results := MapTaskResultsRequest{}
-	call("Coordinator.MapTaskResults", results, &MapTaskResultsResponse{})
+func SendBackMapResults(taskId int) {
+	results := TaskResultsRequest{CompletedMapTaskId: taskId}
+	call("Coordinator.TaskResults", results, &TaskResultsResponse{})
+}
+
+func SendBackReduceResults(taskId int) {
+	results := TaskResultsRequest{CompletedReduceTaskId: taskId}
+	call("Coordinator.TaskResults", results, &TaskResultsResponse{})
 }
 
 // send an RPC request to the coordinator, wait for the response.

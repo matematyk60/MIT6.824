@@ -35,26 +35,31 @@ type AskForTaskRequest struct {
 
 type AskForTaskResponse struct {
 	MapTask         bool
-	MapTaskId       string
+	MapTaskId       int
 	MapTaskFilename string
 	MapTaskNReduce  int
 
 	ReduceTask        bool
+	ReduceTaskId      int
 	ReduceTaskNReduce int
+
+	Done bool
 }
 
-type MapTaskResultsRequest struct {
-}
-
-type MapTaskResultsResponse struct {
+type TaskResultsRequest struct {
 	/*
-		Tasks are expected to be written in files:
+		Map tasks resutls are expected to be written in files:
 
 		intermediate-<n>-<j>.txt
 
 		here n is the number of reduce bucket
 		and j is the id of the job.
 	*/
+	CompletedMapTaskId int
+	CompletedReduceTaskId       int
+}
+
+type TaskResultsResponse struct {
 }
 
 // Add your RPC definitions here.
