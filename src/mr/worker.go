@@ -65,7 +65,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			fmt.Printf("Successfully executed reduce task %v\n", reduceTask)
 		}
 		//no task returned, completing
-		fmt.Println("No task to execute. Finishing")
+		// fmt.Println("No task to execute. Finishing")
 	}
 }
 
@@ -75,6 +75,10 @@ func executeMapTask(mapTask *MapTask, mapf func(string, string) []KeyValue) {
 		log.Fatalf("cannot open %v", mapTask)
 	}
 	content, err := io.ReadAll(file)
+	if err != nil {
+		fmt.Println("ERROR")
+		return
+	}
 	file.Close()
 	results := mapf(mapTask.fileName, string(content))
 	SaveIntermediateFiles(mapTask.taskId, mapTask.nReduce, results)
@@ -105,8 +109,8 @@ func SaveIntermediateFiles(taskId int, nReduce int, kvs []KeyValue) string {
 func executeReduceTask(reduceTask *ReduceTask, reducef func(string, []string) string) {
 	kvs := collectEntriesForNReduce(reduceTask.nReduce)
 	sort.Sort(ByKey(kvs))
-	runReduceOnValues(reduceTask.nReduce, kvs, reducef)
-	SendBackReduceResults(reduceTask.taskId)
+	fileName := runReduceOnValues(kvs, reducef)
+	SendBackReduceResults(reduceTask.taskId, fileName)
 }
 
 func collectEntriesForNReduce(n int) []KeyValue {
@@ -127,10 +131,9 @@ func collectEntriesForNReduce(n int) []KeyValue {
 	return kvs
 }
 
-func runReduceOnValues(n int, kvs []KeyValue, reducef func(string, []string) string) {
-	oname := fmt.Sprintf("mr-out-%d", n)
+func runReduceOnValues(kvs []KeyValue, reducef func(string, []string) string) string {
 	i := 0
-	ofile, _ := os.Create(oname)
+	tmpFile, _ := os.CreateTemp("", "mr-out-*")
 
 	for i < len(kvs) {
 		j := i + 1
@@ -144,11 +147,12 @@ func runReduceOnValues(n int, kvs []KeyValue, reducef func(string, []string) str
 		output := reducef(kvs[i].Key, values)
 
 		// this is the correct format for each line of Reduce output.
-		fmt.Fprintf(ofile, "%v %v\n", kvs[i].Key, output)
+		fmt.Fprintf(tmpFile, "%v %v\n", kvs[i].Key, output)
 
 		i = j
 	}
-	ofile.Close()
+	tmpFile.Close()
+	return tmpFile.Name()
 }
 
 func GetTaskForWork() (*MapTask, *ReduceTask) {
@@ -180,8 +184,8 @@ func SendBackMapResults(taskId int) {
 	call("Coordinator.TaskResults", results, &TaskResultsResponse{})
 }
 
-func SendBackReduceResults(taskId int) {
-	results := TaskResultsRequest{CompletedReduceTaskId: taskId}
+func SendBackReduceResults(taskId int, fileName string) {
+	results := TaskResultsRequest{CompletedReduceTaskId: taskId, CompletedReduceTaskFileName: fileName}
 	call("Coordinator.TaskResults", results, &TaskResultsResponse{})
 }
 

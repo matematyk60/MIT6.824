@@ -55,8 +55,11 @@ type TaskResultsRequest struct {
 		here n is the number of reduce bucket
 		and j is the id of the job.
 	*/
-	CompletedMapTaskId int
+	CompletedMapTaskId      int
+	CompletedMapTskFileName string
+
 	CompletedReduceTaskId       int
+	CompletedReduceTaskFileName string
 }
 
 type TaskResultsResponse struct {

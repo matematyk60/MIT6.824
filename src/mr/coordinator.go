@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
+	"time"
 )
 
 type Coordinator struct {
@@ -14,6 +16,8 @@ type Coordinator struct {
 
 	files   []string
 	nReduce int
+
+	mu sync.Mutex
 
 	mapJobs    []MapJob
 	reduceJobs []ReduceJob
@@ -41,12 +45,11 @@ type ReduceJob struct {
 // an example RPC handler.
 //
 // the RPC argument and reply types are defined in rpc.go.
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
 
+// TODO: cleanup, use temp files
 func (c *Coordinator) AskForTask(args *AskForTaskRequest, reply *AskForTaskResponse) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if len(c.mapJobs) > 0 {
 		taskId := c.nextJobId()
 		mapJob := c.mapJobs[0]
@@ -57,6 +60,15 @@ func (c *Coordinator) AskForTask(args *AskForTaskRequest, reply *AskForTaskRespo
 		reply.MapTaskId = taskId
 		reply.MapTaskFilename = mapJob.File
 		reply.MapTaskNReduce = c.nReduce
+
+		go c.timeoutTask(func() {
+			mapJob, ok := c.mapProgress[taskId]
+			if ok {
+				fmt.Printf("Timing out the map job %d\n", taskId)
+				c.mapJobs = append(c.mapJobs, mapJob)
+				delete(c.mapProgress, taskId)
+			}
+		})
 	} else if len(c.reduceJobs) > 0 {
 		taskId := c.nextJobId()
 		reduceJob := c.reduceJobs[0]
@@ -66,13 +78,31 @@ func (c *Coordinator) AskForTask(args *AskForTaskRequest, reply *AskForTaskRespo
 		reply.ReduceTask = true
 		reply.ReduceTaskId = taskId
 		reply.ReduceTaskNReduce = reduceJob.NReduce
+
+		go c.timeoutTask(func() {
+			reduceJob, ok := c.reduceProgress[taskId]
+			if ok {
+				fmt.Printf("Timing out the reduce job %d\n", taskId)
+				c.reduceJobs = append(c.reduceJobs, reduceJob)
+				delete(c.reduceProgress, taskId)
+			}
+		})
 	} else if c.finished {
 		reply.Done = true
 	}
 	return nil
 }
 
+func (c *Coordinator) timeoutTask(onTimeout func()) {
+	time.Sleep(10 * time.Second)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	onTimeout()
+}
+
 func (c *Coordinator) TaskResults(args *TaskResultsRequest, reply *TaskResultsResponse) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	switch {
 	case args.CompletedMapTaskId != 0:
 		completed := c.mapProgress[args.CompletedMapTaskId]
@@ -81,6 +111,11 @@ func (c *Coordinator) TaskResults(args *TaskResultsRequest, reply *TaskResultsRe
 		c.considerMapPhaseCompleted()
 	case args.CompletedReduceTaskId != 0:
 		completed := c.reduceProgress[args.CompletedReduceTaskId]
+		oFileName := fmt.Sprintf("mr-out-%d", completed.NReduce)
+		err := os.Rename(args.CompletedReduceTaskFileName, oFileName)
+		if err != nil {
+			return err
+		}
 		fmt.Printf("Successfully completed reduce task %v\n", completed)
 		delete(c.reduceProgress, args.CompletedReduceTaskId)
 		c.considerReducePhaseCompleted()
@@ -91,7 +126,7 @@ func (c *Coordinator) TaskResults(args *TaskResultsRequest, reply *TaskResultsRe
 
 func (c *Coordinator) considerMapPhaseCompleted() {
 	if len(c.mapJobs) == 0 && len(c.mapProgress) == 0 {
-		fmt.Printf("Map phase is now completed. Starting reduce jobs")
+		fmt.Println("Map phase is now completed. Starting reduce jobs")
 		for i := 0; i < c.nReduce; i++ {
 			c.reduceJobs = append(c.reduceJobs, ReduceJob{NReduce: i})
 		}
@@ -100,7 +135,7 @@ func (c *Coordinator) considerMapPhaseCompleted() {
 
 func (c *Coordinator) considerReducePhaseCompleted() {
 	if len(c.reduceJobs) == 0 && len(c.reduceProgress) == 0 {
-		fmt.Printf("Reduce phase is now completed. Finishing")
+		fmt.Println("Reduce phase is now completed. Finishing")
 		c.finished = true
 	}
 }
@@ -128,8 +163,10 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
 	// Your code here.
-
-	return c.finished
+	c.mu.Lock()
+	finished := c.finished
+	c.mu.Unlock()
+	return finished
 }
 
 // create a Coordinator.

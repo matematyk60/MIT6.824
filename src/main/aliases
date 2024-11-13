@@ -1,3 +1,4 @@
 
 alias gocoord='go run mrcoordinator.go pg-*.txt'
 alias goworker='go build -buildmode=plugin ../mrapps/wc.go && go run mrworker.go wc.so'
+alias goworkercrash='go build -buildmode=plugin ../mrapps/crash.go && go run mrworker.go crash.so'
