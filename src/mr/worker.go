@@ -81,14 +81,14 @@ func executeMapTask(mapTask *MapTask, mapf func(string, string) []KeyValue) {
 	}
 	file.Close()
 	results := mapf(mapTask.fileName, string(content))
-	SaveIntermediateFiles(mapTask.taskId, mapTask.nReduce, results)
-	SendBackMapResults(mapTask.taskId)
+	fileNames := SaveIntermediateFiles(mapTask.taskId, mapTask.nReduce, results)
+	SendBackMapResults(mapTask.taskId, fileNames)
 }
 
-func SaveIntermediateFiles(taskId int, nReduce int, kvs []KeyValue) string {
+func SaveIntermediateFiles(taskId int, nReduce int, kvs []KeyValue) []string {
 	var intermediateFiles []*os.File
 	for i := 0; i < nReduce; i++ {
-		file, _ := os.Create(fmt.Sprintf("intermediate-%d-%d.txt", i, taskId))
+		file, _ := os.CreateTemp("", fmt.Sprintf("intermediate-%d-*.txt", i))
 		intermediateFiles = append(intermediateFiles, file)
 	}
 	var encoders []*json.Encoder
@@ -103,7 +103,11 @@ func SaveIntermediateFiles(taskId int, nReduce int, kvs []KeyValue) string {
 	for _, file := range intermediateFiles {
 		file.Close()
 	}
-	return ""
+	var filenames []string
+	for _, file := range intermediateFiles {
+		filenames = append(filenames, file.Name())
+	}
+	return filenames
 }
 
 func executeReduceTask(reduceTask *ReduceTask, reducef func(string, []string) string) {
@@ -179,8 +183,8 @@ func GetTaskForWork() (*MapTask, *ReduceTask) {
 	return mapTask, reduceTask
 }
 
-func SendBackMapResults(taskId int) {
-	results := TaskResultsRequest{CompletedMapTaskId: taskId}
+func SendBackMapResults(taskId int, fileNames []string) {
+	results := TaskResultsRequest{CompletedMapTaskId: taskId, CompletedMapTaskFileNames: fileNames}
 	call("Coordinator.TaskResults", results, &TaskResultsResponse{})
 }
 

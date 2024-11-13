@@ -106,6 +106,14 @@ func (c *Coordinator) TaskResults(args *TaskResultsRequest, reply *TaskResultsRe
 	switch {
 	case args.CompletedMapTaskId != 0:
 		completed := c.mapProgress[args.CompletedMapTaskId]
+		taskId := completed.JobId
+		for n, fileName := range args.CompletedMapTaskFileNames {
+			oFileName := fmt.Sprintf("intermediate-%d-%d.txt", n, taskId)
+			err := os.Rename(fileName, oFileName)
+			if err != nil {
+				return err
+			}
+		}
 		fmt.Printf("Successfully completed map task %v\n", completed)
 		delete(c.mapProgress, args.CompletedMapTaskId)
 		c.considerMapPhaseCompleted()
