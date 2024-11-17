@@ -5,7 +5,8 @@ type PutAppendArgs struct {
 	Key   string
 	Value string
 
-	ReqId int64
+	ClientId int64
+	ReqId    int64
 }
 
 type PutAppendReply struct {

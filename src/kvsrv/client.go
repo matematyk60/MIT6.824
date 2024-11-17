@@ -11,6 +11,7 @@ import (
 type Clerk struct {
 	server *labrpc.ClientEnd
 	// You will have to modify this struct.
+	clientId int64
 }
 
 func nrand() int64 {
@@ -23,6 +24,7 @@ func nrand() int64 {
 func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.server = server
+	ck.clientId = nrand()
 	// You'll have to add code here.
 	return ck
 }
@@ -56,7 +58,7 @@ func (ck *Clerk) Get(key string) string {
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
 	// You will have to modify this function.
 	reqId := nrand()
-	args := PutAppendArgs{ReqId: reqId, Key: key, Value: value}
+	args := PutAppendArgs{ClientId: ck.clientId, ReqId: reqId, Key: key, Value: value}
 	reply := PutAppendReply{}
 	ck.RetryUntilSucceeds("KVServer."+op, &args, &reply)
 	return reply.Value

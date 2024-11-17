@@ -14,11 +14,16 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
+type LastResults struct {
+	requestId int64
+	result    string
+}
+
 type KVServer struct {
 	mu    sync.Mutex
 	store map[string]string
 
-	log map[int64]string
+	log map[int64]LastResults
 
 	// Your definitions here.
 }
@@ -35,13 +40,11 @@ func (kv *KVServer) Put(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
-	_, alreadyCompleted := kv.log[args.ReqId]
-	if alreadyCompleted {
-
-		//skip
+	lastResults := kv.log[args.ClientId]
+	if lastResults.requestId == args.ReqId {
 	} else {
 		kv.store[args.Key] = args.Value
-		kv.log[args.ReqId] = args.Value
+		kv.log[args.ClientId] = LastResults{args.ReqId, args.Value}
 	}
 
 }
@@ -50,13 +53,13 @@ func (kv *KVServer) Append(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
-	value, alreadyCompleted := kv.log[args.ReqId]
-	if alreadyCompleted {
-		reply.Value = value
+	lastResults := kv.log[args.ClientId]
+	if lastResults.requestId == args.ReqId {
+		reply.Value = lastResults.result
 	} else {
 		previousValue := kv.store[args.Key]
 		kv.store[args.Key] = previousValue + args.Value
-		kv.log[args.ReqId] = previousValue
+		kv.log[args.ClientId] = LastResults{args.ReqId, previousValue}
 
 		reply.Value = previousValue
 	}
@@ -67,7 +70,7 @@ func (kv *KVServer) Append(args *PutAppendArgs, reply *PutAppendReply) {
 func StartKVServer() *KVServer {
 	kv := new(KVServer)
 	kv.store = make(map[string]string)
-	kv.log = make(map[int64]string)
+	kv.log = make(map[int64]LastResults)
 
 	return kv
 }
