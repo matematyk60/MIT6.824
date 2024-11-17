@@ -2,7 +2,7 @@ package kvsrv
 
 import (
 	"crypto/rand"
-	"fmt"
+	// "fmt"
 	"math/big"
 
 	"6.5840/labrpc"
@@ -40,13 +40,9 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 	args := GetArgs{key}
 	reply := GetReply{}
-	ok := ck.server.Call("KVServer.Get", &args, &reply)
-	if ok {
-		return reply.Value
-	} else {
-		fmt.Println("ERROR WHEN CALLING SERVER")
-		return ""
-	}
+	ck.RetryUntilSucceeds("KVServer.Get", &args, &reply)
+
+	return reply.Value
 }
 
 // shared by Put and Append.
@@ -59,15 +55,11 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
 	// You will have to modify this function.
-	args := PutAppendArgs{Key: key, Value: value}
+	reqId := nrand()
+	args := PutAppendArgs{ReqId: reqId, Key: key, Value: value}
 	reply := PutAppendReply{}
-	ok := ck.server.Call("KVServer."+op, &args, &reply)
-	if ok {
-		return reply.Value
-	} else {
-		fmt.Println("ERROR WHEN CALLING SERVER")
-		return ""
-	}
+	ck.RetryUntilSucceeds("KVServer."+op, &args, &reply)
+	return reply.Value
 }
 
 func (ck *Clerk) Put(key string, value string) {
@@ -77,4 +69,11 @@ func (ck *Clerk) Put(key string, value string) {
 // Append value to key's value and return that value
 func (ck *Clerk) Append(key string, value string) string {
 	return ck.PutAppend(key, value, "Append")
+}
+
+func (ck *Clerk) RetryUntilSucceeds(svcMeth string, args interface{}, reply interface{}) {
+	ok := false
+	for !ok {
+		ok = ck.server.Call(svcMeth, args, reply)
+	}
 }

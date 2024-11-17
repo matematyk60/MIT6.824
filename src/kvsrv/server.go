@@ -18,6 +18,8 @@ type KVServer struct {
 	mu    sync.Mutex
 	store map[string]string
 
+	log map[int64]string
+
 	// Your definitions here.
 }
 
@@ -32,23 +34,40 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 func (kv *KVServer) Put(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
-	kv.store[args.Key] = args.Value
 
-	// Your code here.
+	_, alreadyCompleted := kv.log[args.ReqId]
+	if alreadyCompleted {
+
+		//skip
+	} else {
+		kv.store[args.Key] = args.Value
+		kv.log[args.ReqId] = args.Value
+	}
+
 }
 
 func (kv *KVServer) Append(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
-	previousValue := kv.store[args.Key]
-	kv.store[args.Key] = previousValue + args.Value
-	reply.Value = previousValue
+
+	value, alreadyCompleted := kv.log[args.ReqId]
+	if alreadyCompleted {
+		reply.Value = value
+	} else {
+		previousValue := kv.store[args.Key]
+		kv.store[args.Key] = previousValue + args.Value
+		kv.log[args.ReqId] = previousValue
+
+		reply.Value = previousValue
+	}
+
 	// Your code here.
 }
 
 func StartKVServer() *KVServer {
 	kv := new(KVServer)
 	kv.store = make(map[string]string)
+	kv.log = make(map[int64]string)
 
 	return kv
 }
