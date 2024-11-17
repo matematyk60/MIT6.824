@@ -31,6 +31,8 @@ type KVServer struct {
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
+
+	delete(kv.log, args.ClientId)
 	value := kv.store[args.Key]
 	reply.Value = value
 	// Your code here.
@@ -40,13 +42,8 @@ func (kv *KVServer) Put(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
-	lastResults := kv.log[args.ClientId]
-	if lastResults.requestId == args.ReqId {
-	} else {
-		kv.store[args.Key] = args.Value
-		kv.log[args.ClientId] = LastResults{args.ReqId, args.Value}
-	}
-
+	delete(kv.log, args.ClientId)
+	kv.store[args.Key] = args.Value
 }
 
 func (kv *KVServer) Append(args *PutAppendArgs, reply *PutAppendReply) {

@@ -40,7 +40,7 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
-	args := GetArgs{key}
+	args := GetArgs{Key: key, ClientId: ck.clientId}
 	reply := GetReply{}
 	ck.RetryUntilSucceeds("KVServer.Get", &args, &reply)
 
